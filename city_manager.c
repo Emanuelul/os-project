@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -6,6 +8,7 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/wait.h>
 
 #define MAX_NAME 40
 #define MAX_CAT 20
@@ -79,7 +82,6 @@ void add_report(const char *district_id, const char *role, const char *user)
     snprintf(file_path, sizeof(file_path), "%s/reports.dat", dir_path);
     snprintf(cfg_path, sizeof(cfg_path), "%s/district.cfg", dir_path);
 
-    // 1. Directory and Config Setup (Phase 1)
     mkdir(dir_path, 0750);
     chmod(dir_path, 0750);
 
@@ -130,7 +132,6 @@ void add_report(const char *district_id, const char *role, const char *user)
 
     log_action(district_id, role, user, "add");
 
-    // 3. Update Symlink (Phase 1)
     char sym_link[256];
     snprintf(sym_link, sizeof(sym_link), "active_reports-%s", district_id);
     unlink(sym_link);
@@ -138,7 +139,6 @@ void add_report(const char *district_id, const char *role, const char *user)
 
     printf("Report #%d added successfully to %s.\n", new_report.report_id, district_id);
 
-    // 4. Phase 2: Notify the monitor program via SIGUSR1
     int pid_fd = open(".monitor_pid", O_RDONLY);
     if (pid_fd >= 0) {
         char pid_buf[16];
@@ -149,19 +149,15 @@ void add_report(const char *district_id, const char *role, const char *user)
             pid_buf[bytes] = '\0';
             pid_t m_pid = atoi(pid_buf);
             
-            // Send SIGUSR1 to the PID stored in .monitor_pid
             if (kill(m_pid, SIGUSR1) == 0) {
-                // Log success
                 log_action(district_id, role, user, "Signal SIGUSR1 sent to monitor");
             } else {
-                // Log failure if signal couldn't be sent
                 log_action(district_id, role, user, "Error: monitor could not be informed (kill failed)");
             }
         } else {
             log_action(district_id, role, user, "Error: monitor could not be informed (empty PID file)");
         }
     } else {
-        // Log failure if PID file is missing
         log_action(district_id, role, user, "Error: monitor could not be informed (.monitor_pid not found)");
     }
 }
