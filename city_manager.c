@@ -79,6 +79,7 @@ void add_report(const char *district_id, const char *role, const char *user)
     snprintf(file_path, sizeof(file_path), "%s/reports.dat", dir_path);
     snprintf(cfg_path, sizeof(cfg_path), "%s/district.cfg", dir_path);
 
+    // 1. Directory and Config Setup (Phase 1)
     mkdir(dir_path, 0750);
     chmod(dir_path, 0750);
 
@@ -92,6 +93,7 @@ void add_report(const char *district_id, const char *role, const char *user)
         }
     }
 
+    // 2. Open and Write the Report (Phase 1)
     int fd = open(file_path, O_WRONLY | O_APPEND | O_CREAT, 0664);
     if (fd < 0)
     {
@@ -128,12 +130,40 @@ void add_report(const char *district_id, const char *role, const char *user)
 
     log_action(district_id, role, user, "add");
 
+    // 3. Update Symlink (Phase 1)
     char sym_link[256];
     snprintf(sym_link, sizeof(sym_link), "active_reports-%s", district_id);
     unlink(sym_link);
     symlink(file_path, sym_link);
 
     printf("Report #%d added successfully to %s.\n", new_report.report_id, district_id);
+
+    // 4. Phase 2: Notify the monitor program via SIGUSR1
+    int pid_fd = open(".monitor_pid", O_RDONLY);
+    if (pid_fd >= 0) {
+        char pid_buf[16];
+        ssize_t bytes = read(pid_fd, pid_buf, sizeof(pid_buf) - 1);
+        close(pid_fd);
+        
+        if (bytes > 0) {
+            pid_buf[bytes] = '\0';
+            pid_t m_pid = atoi(pid_buf);
+            
+            // Send SIGUSR1 to the PID stored in .monitor_pid
+            if (kill(m_pid, SIGUSR1) == 0) {
+                // Log success
+                log_action(district_id, role, user, "Signal SIGUSR1 sent to monitor");
+            } else {
+                // Log failure if signal couldn't be sent
+                log_action(district_id, role, user, "Error: monitor could not be informed (kill failed)");
+            }
+        } else {
+            log_action(district_id, role, user, "Error: monitor could not be informed (empty PID file)");
+        }
+    } else {
+        // Log failure if PID file is missing
+        log_action(district_id, role, user, "Error: monitor could not be informed (.monitor_pid not found)");
+    }
 }
 
 void get_permissions_string(mode_t mode, char *str)
@@ -422,6 +452,34 @@ void filter_reports(const char *district_id, const char *cond_str, const char *r
     log_action(district_id, role, user, "filter");
 }
 
+void remove_district(const char *district_id, const char *role, const char *user) {
+    if (strcmp(role, "manager") != 0) {
+        printf("Access Denied: Only managers can remove districts.\n");
+        return;
+    }
+
+    char sym_link[256];
+    snprintf(sym_link, sizeof(sym_link), "active_reports-%s", district_id);
+    unlink(sym_link);
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        char dir_path[256];
+        snprintf(dir_path, sizeof(dir_path), "./%s", district_id);
+        
+
+        char *args[] = {"rm", "-rf", dir_path, NULL};
+        execvp("rm", args);
+        
+        perror("execvp failed");
+        exit(1);
+    } else if (pid > 0) {
+        wait(NULL);
+        printf("District %s and its symlink removed.\n", district_id);
+    }
+}
+
+
 int main(int argc, char *argv[])
 {
     if (argc < 6)
@@ -509,6 +567,9 @@ int main(int argc, char *argv[])
         {
             filter_reports(argv[6], argv[7], role, user);
         }
+    }
+    else if (strcmp(argv[5], "--remove_district") == 0) {
+        remove_district(argv[6], role, user);
     }
     else
     {
