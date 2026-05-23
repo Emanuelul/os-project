@@ -55,3 +55,19 @@ int match_condition(REPORT *r, const char *field, const char *op, const char *va
 
 ## What I Learned
 > I learned how to use negated scansets in sscanf (like %[^:]) to parse structured strings without needing complex regex or multiple strtok calls.
+
+## Phase 3 Prompts and Logic Contributions
+
+### For Pipeline Setup and Asynchronous Verification Protocol
+> "How can I set up a program to create a tracking pipeline via pipe(), fork a child tracking monitor instance that binds its standard output to this channel using dup2(), and evaluate custom tag headers like [ERR] or [OK] from the parent process?"
+
+### For Scoring Engine Framework Integration
+> "Provide a safe methodology to dynamically loop through variable command line string parameters inside a management shell, execute an autonomous calculating calculation process for each parameter, read its text metrics summary directly over a redirected pipe interface, and clean up zombie structures safely via waitpid."
+
+---
+
+## What Was Generated vs What Was Custom Modified
+The AI tool provided modular architecture setups demonstrating basic `pipe()` structural assignments. 
+
+* **The Protocol Integration**: I added functional stream parsing headers (`[MSG]`, `[ERR]`, `[OK]`) to the monitor module output streams. This allows the hub tool to cleanly isolate raw terminal display strings from functional error signaling traps.
+* **Fail-Safe Processing Blocks**: The file verification mechanism (`access` and `open`) inside `scorer.c` was expanded to prevent segmentation faults if a user queries a non-existent or corrupted district path identifier.

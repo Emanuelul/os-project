@@ -6,25 +6,36 @@
 #include <fcntl.h>
 #include <string.h>
 
-
-void handle_sigusr1(int sig);
-void handle_sigint(int sig);
-
 void handle_sigusr1(int sig) {
-
-    const char *msg = "Notification received: A new report has been added!\n";
+    // Protocol prefix [MSG] ensures the hub distinguishes logs from structural updates
+    const char *msg = "[MSG] Notification received: A new report has been added!\n";
     write(STDOUT_FILENO, msg, strlen(msg));
 }
 
 void handle_sigint(int sig) {
-
-    const char *msg = "\nMonitor process ending. Cleaning up...\n";
+    const char *msg = "[MSG] Monitor process ending. Cleaning up...\n";
     write(STDOUT_FILENO, msg, strlen(msg));
     unlink(".monitor_pid"); 
     exit(0);
 }
 
 int main() {
+    // Check if another monitor instance is active
+    int check_fd = open(".monitor_pid", O_RDONLY);
+    if (check_fd >= 0) {
+        char pid_buf[16];
+        ssize_t bytes = read(check_fd, pid_buf, sizeof(pid_buf) - 1);
+        close(check_fd);
+        if (bytes > 0) {
+            pid_buf[bytes] = '\0';
+            // Send clear error protocol down the stdout descriptor (the pipe)
+            printf("[ERR] ALREADY_RUNNING:%s\n", pid_buf);
+            fflush(stdout);
+            exit(1); 
+        }
+    }
+
+    // Save current PID if safe to run
     int fd = open(".monitor_pid", O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd >= 0) {
         dprintf(fd, "%d", getpid());
@@ -43,10 +54,12 @@ int main() {
     sa_int.sa_flags = 0;
     sigaction(SIGINT, &sa_int, NULL);
 
-    printf("Monitor started (PID: %d). Waiting for signals...\n", getpid());
+    // Initial check-in packet to confirm startup success to hub
+    printf("[OK] STARTED:%d\n", getpid());
+    fflush(stdout);
 
     while(1) {
-        pause();
+        pause(); 
     }
     return 0;
 }
