@@ -55,6 +55,7 @@ int match_condition(REPORT *r, const char *field, const char *op, const char *va
     }
     return 0;
 }
+```
 
 # AI Usage Documentation — Phase 2
 
