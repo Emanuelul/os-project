@@ -2,3 +2,7 @@
 1778447964 alice manager Error: monitor could not be informed (.monitor_pid not found)
 1778447976 alice manager add
 1778447976 alice manager Error: monitor could not be informed (.monitor_pid not found)
+1779607914 alice manager add
+1779607914 alice manager Error: monitor could not be informed (kill failed)
+1779608155 alice manager update_threshold 3
+1779608404 alice manager remove_report 0

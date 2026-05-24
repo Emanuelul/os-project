@@ -27,14 +27,12 @@ void start_monitor() {
     }
 
     pid_t hub_mon_pid = fork();
-    if (hub_mon_pid == 0) { // Child Process: hub_mon
-        close(p_fds[0]); // hub_mon does not read from its own monitor pipe
+    if (hub_mon_pid == 0) {
+        close(p_fds[0]);
 
-        // Redirect child standard output stream directly to pipe input
         dup2(p_fds[1], STDOUT_FILENO);
         close(p_fds[1]);
 
-        // Fork standalone monitor engine binary
         pid_t mon_exec_pid = fork();
         if (mon_exec_pid == 0) {
             char *args[] = {"./monitor_reports", NULL};
@@ -49,13 +47,11 @@ void start_monitor() {
         exit(1);
     }
 
-    // Parent Thread Context (The Interactive Hub Core Interface)
     close(p_fds[1]); 
 
     char stream_buffer[256];
     printf("[Hub System] Launching automated background monitor layer...\n");
 
-    // Read initialization transmission lines across pipeline frame
     read_line_from_pipe(p_fds[0], stream_buffer, sizeof(stream_buffer));
 
     if (strncmp(stream_buffer, "[ERR]", 5) == 0) {
@@ -71,7 +67,6 @@ void start_monitor() {
         char *pid_part = strchr(stream_buffer, ':');
         printf("\033[1;32m[Hub Success]\033[0m Monitor sub-thread attached securely at engine PID: %s\n", pid_part ? pid_part + 1 : "Unknown");
         
-        // Fork an asynchronous monitoring engine loop to stream background messages in real time
         if (fork() == 0) {
             while (1) {
                 char update_buffer[256];
@@ -113,9 +108,9 @@ void calculate_scores(char *args_str) {
         if (pipe(p_fds) < 0) { perror("Pipe generation failed"); continue; }
 
         pid_t pid = fork();
-        if (pid == 0) { // Child scorer runner
+        if (pid == 0) {
             close(p_fds[0]); 
-            dup2(p_fds[1], STDOUT_FILENO); // Bind output channel directly to pipeline
+            dup2(p_fds[1], STDOUT_FILENO);
             close(p_fds[1]);
 
             char *exec_args[] = {"./scorer", districts[i], NULL};
@@ -124,7 +119,6 @@ void calculate_scores(char *args_str) {
             exit(1);
         }
 
-        // Parent parsing channel context
         close(p_fds[1]);
         
         char line_in[256];
@@ -163,7 +157,7 @@ int main() {
             break;
         } else if (strcmp(user_input, "start_monitor") == 0) {
             start_monitor();
-            sleep(1); // Small delay to let async outputs format cleanly
+            sleep(1);
         } else if (strncmp(user_input, "calculate_scores", 16) == 0) {
             char *args_ptr = user_input + 16;
             calculate_scores(args_ptr);

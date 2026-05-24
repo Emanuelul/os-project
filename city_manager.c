@@ -6,9 +6,10 @@
 #include <string.h>
 #include <fcntl.h>
 #include <sys/stat.h>
-#include <time.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <signal.h>
+#include <dirent.h>
 
 #define MAX_NAME 40
 #define MAX_CAT 20
@@ -31,18 +32,22 @@ int check_permission(const char *path, const char *role, char access_type)
     struct stat st;
     if (stat(path, &st) != 0)
     {
-        return -1; 
+        return -1;
     }
 
     if (strcmp(role, "manager") == 0)
     {
-        if (access_type == 'r') return (st.st_mode & S_IRUSR);
-        if (access_type == 'w') return (st.st_mode & S_IWUSR);
+        if (access_type == 'r')
+            return (st.st_mode & S_IRUSR);
+        if (access_type == 'w')
+            return (st.st_mode & S_IWUSR);
     }
     else if (strcmp(role, "inspector") == 0)
     {
-        if (access_type == 'r') return (st.st_mode & S_IRGRP);
-        if (access_type == 'w') return (st.st_mode & S_IWGRP);
+        if (access_type == 'r')
+            return (st.st_mode & S_IRGRP);
+        if (access_type == 'w')
+            return (st.st_mode & S_IWGRP);
     }
 
     return 0;
@@ -74,6 +79,34 @@ void log_action(const char *district_id, const char *role, const char *user, con
     }
 }
 
+void check_dangling_links()
+{
+    DIR *dir = opendir(".");
+    if (!dir)
+        return;
+    struct dirent *entry;
+    struct stat st;
+
+    while ((entry = readdir(dir)) != NULL)
+    {
+        if (strncmp(entry->d_name, "active_reports-", 15) == 0)
+        {
+            if (lstat(entry->d_name, &st) == 0)
+            {
+                if (S_ISLNK(st.st_mode))
+                {
+                    struct stat target_st;
+                    if (stat(entry->d_name, &target_st) != 0)
+                    {
+                        printf("\033[1;33m[Warning]\033[0m Dangling symbolic link detected: %s\n", entry->d_name);
+                    }
+                }
+            }
+        }
+    }
+    closedir(dir);
+}
+
 void add_report(const char *district_id, const char *role, const char *user)
 {
     char dir_path[256], file_path[256], cfg_path[256];
@@ -95,7 +128,6 @@ void add_report(const char *district_id, const char *role, const char *user)
         }
     }
 
-    // 2. Open and Write the Report (Phase 1)
     int fd = open(file_path, O_WRONLY | O_APPEND | O_CREAT, 0664);
     if (fd < 0)
     {
@@ -108,7 +140,7 @@ void add_report(const char *district_id, const char *role, const char *user)
     memset(&new_report, 0, sizeof(REPORT));
 
     struct stat st;
-    stat(file_path, &st);
+    fstat(fd, &st);
     new_report.report_id = st.st_size / sizeof(REPORT);
 
     strncpy(new_report.inspector_name, user, MAX_NAME);
@@ -140,24 +172,32 @@ void add_report(const char *district_id, const char *role, const char *user)
     printf("Report #%d added successfully to %s.\n", new_report.report_id, district_id);
 
     int pid_fd = open(".monitor_pid", O_RDONLY);
-    if (pid_fd >= 0) {
+    if (pid_fd >= 0)
+    {
         char pid_buf[16];
         ssize_t bytes = read(pid_fd, pid_buf, sizeof(pid_buf) - 1);
         close(pid_fd);
-        
-        if (bytes > 0) {
+
+        if (bytes > 0)
+        {
             pid_buf[bytes] = '\0';
             pid_t m_pid = atoi(pid_buf);
-            
-            if (kill(m_pid, SIGUSR1) == 0) {
+            if (kill(m_pid, SIGUSR1) == 0)
+            {
                 log_action(district_id, role, user, "Signal SIGUSR1 sent to monitor");
-            } else {
+            }
+            else
+            {
                 log_action(district_id, role, user, "Error: monitor could not be informed (kill failed)");
             }
-        } else {
+        }
+        else
+        {
             log_action(district_id, role, user, "Error: monitor could not be informed (empty PID file)");
         }
-    } else {
+    }
+    else
+    {
         log_action(district_id, role, user, "Error: monitor could not be informed (.monitor_pid not found)");
     }
 }
@@ -180,6 +220,12 @@ void list_reports(const char *district_id, const char *role, const char *user)
 {
     char file_path[256];
     snprintf(file_path, sizeof(file_path), "./%s/reports.dat", district_id);
+
+    if (check_permission(file_path, role, 'r') <= 0)
+    {
+        fprintf(stderr, "Access Denied: Inode bit validation failed for role %s\n", role);
+        return;
+    }
 
     struct stat st;
     if (stat(file_path, &st) == -1)
@@ -220,7 +266,6 @@ void list_reports(const char *district_id, const char *role, const char *user)
                r.report_id, r.inspector_name, r.category, r.severity, report_time);
     }
     close(fd);
-
     log_action(district_id, role, user, "list");
 }
 
@@ -228,6 +273,12 @@ void view_report(const char *district_id, int target_id, const char *role, const
 {
     char file_path[256];
     snprintf(file_path, sizeof(file_path), "./%s/reports.dat", district_id);
+
+    if (check_permission(file_path, role, 'r') <= 0)
+    {
+        fprintf(stderr, "Access Denied: Inode bit validation failed for role %s\n", role);
+        return;
+    }
 
     struct stat st;
     if (stat(file_path, &st) == -1)
@@ -292,6 +343,12 @@ void remove_report(const char *district_id, int target_id, const char *role, con
     char file_path[256];
     snprintf(file_path, sizeof(file_path), "./%s/reports.dat", district_id);
 
+    if (check_permission(file_path, role, 'w') <= 0)
+    {
+        fprintf(stderr, "Access Denied: Inode bit validation failed for role %s\n", role);
+        return;
+    }
+
     int fd = open(file_path, O_RDWR);
     if (fd < 0)
     {
@@ -336,8 +393,10 @@ void remove_report(const char *district_id, int target_id, const char *role, con
     printf("Report #%d removed and IDs updated.\n", target_id);
 }
 
-void update_threshold(const char *district_id, const char *new_threshold, const char *role, const char *user) {
-    if (strcmp(role, "manager") != 0) {
+void update_threshold(const char *district_id, const char *new_threshold, const char *role, const char *user)
+{
+    if (strcmp(role, "manager") != 0)
+    {
         printf("Access Denied: Only managers can update the district threshold.\n");
         return;
     }
@@ -346,26 +405,32 @@ void update_threshold(const char *district_id, const char *new_threshold, const 
     snprintf(cfg_path, sizeof(cfg_path), "./%s/district.cfg", district_id);
 
     struct stat st;
-    if (stat(cfg_path, &st) == 0) {
-        if ((st.st_mode & 0777) != 0640) {
-            fprintf(stderr, "Security Error: Permissions for %s have been tampered with (%o)! Refusing to write.\n", 
+    if (stat(cfg_path, &st) == 0)
+    {
+        if ((st.st_mode & 0777) != 0640)
+        {
+            fprintf(stderr, "Security Error: Permissions for %s have been tampered with (%o)! Refusing to write.\n",
                     cfg_path, st.st_mode & 0777);
             return;
         }
     }
 
     int fd = open(cfg_path, O_WRONLY | O_CREAT | O_TRUNC, 0640);
-    if (fd < 0) {
+    if (fd < 0)
+    {
         perror("Error opening district.cfg");
         return;
     }
 
-    if (write(fd, new_threshold, strlen(new_threshold)) == -1) {
+    if (write(fd, new_threshold, strlen(new_threshold)) == -1)
+    {
         perror("Error writing to configuration");
-    } else {
+    }
+    else
+    {
         printf("Threshold for district '%s' updated to: %s\n", district_id, new_threshold);
     }
-    
+
     close(fd);
 
     char details[64];
@@ -420,6 +485,12 @@ void filter_reports(const char *district_id, const char *cond_str, const char *r
     char file_path[256];
     snprintf(file_path, sizeof(file_path), "./%s/reports.dat", district_id);
 
+    if (check_permission(file_path, role, 'r') <= 0)
+    {
+        fprintf(stderr, "Access Denied: Inode bit validation failed for role %s\n", role);
+        return;
+    }
+
     char field[20], op[5], value[MAX_DESC];
     if (!parse_condition(cond_str, field, op, value))
     {
@@ -444,13 +515,20 @@ void filter_reports(const char *district_id, const char *cond_str, const char *r
         }
     }
     close(fd);
-
     log_action(district_id, role, user, "filter");
 }
 
-void remove_district(const char *district_id, const char *role, const char *user) {
-    if (strcmp(role, "manager") != 0) {
+void remove_district(const char *district_id, const char *role, const char *user)
+{
+    if (strcmp(role, "manager") != 0)
+    {
         printf("Access Denied: Only managers can remove districts.\n");
+        return;
+    }
+
+    if (strlen(district_id) == 0 || strcmp(district_id, ".") == 0 || strcmp(district_id, "/") == 0)
+    {
+        fprintf(stderr, "Error: Dangerous or empty district string validation failed.\n");
         return;
     }
 
@@ -459,25 +537,30 @@ void remove_district(const char *district_id, const char *role, const char *user
     unlink(sym_link);
 
     pid_t pid = fork();
-    if (pid == 0) {
+    if (pid == 0)
+    {
         char dir_path[256];
         snprintf(dir_path, sizeof(dir_path), "./%s", district_id);
-        
-
         char *args[] = {"rm", "-rf", dir_path, NULL};
         execvp("rm", args);
-        
         perror("execvp failed");
         exit(1);
-    } else if (pid > 0) {
+    }
+    else if (pid > 0)
+    {
         wait(NULL);
         printf("District %s and its symlink removed.\n", district_id);
     }
+    else
+    {
+        perror("fork failed");
+    }
 }
-
 
 int main(int argc, char *argv[])
 {
+    check_dangling_links();
+
     if (argc < 6)
     {
         printf("Invalid usage!");
@@ -488,89 +571,61 @@ int main(int argc, char *argv[])
     char user[MAX_NAME] = "";
 
     if (strcmp(argv[1], "--role") == 0)
-    {
         strcpy(role, argv[2]);
-    }
-
     if (strcmp(argv[3], "--user") == 0)
-    {
         strcpy(user, argv[4]);
-    }
 
     if (strcmp(argv[5], "--add") == 0)
     {
         if (argc < 7)
-        {
             printf("Usage: city_manager --role <role> --user <user> --add <district_id>\n");
-        }
         else
-        {
             add_report(argv[6], role, user);
-        }
     }
     else if (strcmp(argv[5], "--list") == 0)
     {
         if (argc < 7)
-        {
             printf("Usage: city_manager --role <role> --user <user> --list <district_id>\n");
-        }
         else
-        {
             list_reports(argv[6], role, user);
-        }
     }
     else if (strcmp(argv[5], "--view") == 0)
     {
         if (argc < 8)
-        {
             printf("Usage: city_manager --role <role> --user <user> --view <district_id> <report_id>\n");
-        }
         else
-        {
-            int target_id = atoi(argv[7]);
-            view_report(argv[6], target_id, role, user);
-        }
+            view_report(argv[6], atoi(argv[7]), role, user);
     }
     else if (strcmp(argv[5], "--remove_report") == 0)
     {
         if (argc < 8)
-        {
             printf("Usage: city_manager --role manager --user <user> --remove_report <district> <id>\n");
-        }
         else
-        {
             remove_report(argv[6], atoi(argv[7]), role, user);
-        }
     }
     else if (strcmp(argv[5], "--update_threshold") == 0)
     {
         if (argc < 8)
-        {
             printf("Usage: city_manager --role manager --user <user> --update_threshold <district> <value>\n");
-        }
         else
-        {
             update_threshold(argv[6], argv[7], role, user);
-        }
     }
     else if (strcmp(argv[5], "--filter") == 0)
     {
-        if (argc < 8)
-        {
+        if (argc < 7)
             printf("Usage: city_manager --role <role> --user <user> --filter <district> <condition>\n");
-        }
         else
-        {
             filter_reports(argv[6], argv[7], role, user);
-        }
     }
-    else if (strcmp(argv[5], "--remove_district") == 0) {
-        remove_district(argv[6], role, user);
+    else if (strcmp(argv[5], "--remove_district") == 0)
+    {
+        if (argc < 7)
+            printf("Usage: city_manager --role manager --user <user> --remove_district <district_id>\n");
+        else
+            remove_district(argv[6], role, user);
     }
     else
-    {
         printf("Error: Invalid operation!\n");
-    }
 
     return 0;
 }

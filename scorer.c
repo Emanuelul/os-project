@@ -37,7 +37,6 @@ int main(int argc, char *argv[]) {
 
     int fd = open(file_path, O_RDONLY);
     if (fd < 0) {
-        // Safe check if file or directory doesn't exist
         printf("District [%s]: No reports data found.\n", argv[1]);
         return 0;
     }
