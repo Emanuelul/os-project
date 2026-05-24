@@ -93,6 +93,7 @@ sa_usr1.sa_handler = handle_sigusr1;
 sigemptyset(&sa_usr1.sa_mask);
 sa_usr1.sa_flags = 0;
 sigaction(SIGUSR1, &sa_usr1, NULL);
+```
 
 # AI Usage Documentation — Phase 3
 
